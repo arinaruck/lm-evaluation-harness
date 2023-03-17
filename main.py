@@ -32,6 +32,28 @@ def parse_args():
         "in the lm_eval registry. See: `lm_eval.list_tasks()`",
     )
     parser.add_argument(
+        "--task_tgt_cfg",
+        required=True,
+        help="Language of the target task. See: `lm_eval.list_tasks()`",
+    )
+    parser.add_argument(
+        "--task_src_cfgs",
+        default=None,
+        help="Languages of the source tasks to draw demonstrations from. See: `lm_eval.list_tasks()`"
+        "Example: en,fr,de"
+    )
+    parser.add_argument(
+        "--prompt_tgt_cfg",
+        required=True,
+        help="Language of the target prompt to use demonstrations with."
+    )
+    parser.add_argument(
+        "--prompt_src_cfgs",
+        default=None,
+        help="Languages of the source prompts to use demonstrations with. "
+        "Example: en,fr,de"
+    )
+    parser.add_argument(
         "--task_args",
         default="",
         help="""Optional task constructor args that you'd pass into a task class of kind "
@@ -170,15 +192,21 @@ def main():
     output_path = args_to_name(args, separator=path_separator)
     setup_example_logger(output_path, path_separator)
 
-    template_names = utils.cli_template_names(
-        args.task_name, args.template_names, args.template_idx
+    target_template_names = utils.cli_template_names(
+        args.task_name, args.template_names, [args.prompt_tgt_cfg], args.template_idx
     )
+    source_template_names = utils.cli_template_names(
+        args.task_name, args.template_names, args.prompt_src_cfgs.split(','), args.template_idx) if args.prompt_src_cfgs else target_template_names
+
     evaluate_args = dict(
         model_api_name=args.model_api_name,
         model_args=args.model_args,
         task_name=args.task_name,
+        task_tgt_cfg=args.task_tgt_cfg,
+        task_src_cfgs=args.task_src_cfgs if args.task_src_cfgs else args.task_tgt_cfg,
         task_args=args.task_args,
-        template_names=template_names,
+        target_template_names=target_template_names,
+        source_template_names=source_template_names,
         num_fewshot=args.num_fewshot,
         batch_size=args.batch_size,
         device=args.device,

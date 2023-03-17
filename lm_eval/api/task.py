@@ -501,6 +501,7 @@ class PromptSourceTask(Task):
             # NOTE: In the future, target could be a list of strings.
             assert isinstance(target, list) and len(target) == 1
             target = target[0].strip()
+            # TODO: make into a dict.
             target_idx = answer_choices_list.index(target)
 
             pred = answer_choices_list[np.argmax(results)]

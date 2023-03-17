@@ -3,7 +3,7 @@ import pathlib
 import re
 import sys
 import torch
-from typing import Callable, Final, Iterable, List, Optional, Tuple, Union
+from typing import Callable, Final, Iterable, List, Optional, Tuple, Union, Dict
 from collections.abc import MutableMapping
 from transformers import set_seed as transformers_set_seed
 
@@ -238,8 +238,8 @@ def group(arr: Iterable, fn: Callable) -> List:
 
 
 def cli_template_names(
-    task_name: str, template_names: str, template_idx: int = None
-) -> List[str]:
+    task_name: str, template_names: str, template_cfgs: List[str], template_idx: int = None,
+) -> Dict[str, List[str]]:
     """Returns a selection of template names for a given task and comma-
     separated string of template names.
 
@@ -266,20 +266,33 @@ def cli_template_names(
     """
     import lm_eval.tasks
 
-    if template_names == "all_templates":
-        selections = lm_eval.tasks.list_templates(task_name)
-    elif template_names == "original_templates":
-        templates = lm_eval.tasks.get_templates(task_name)
-        selections = []
-        for name in templates.all_template_names:
-            if templates[name].metadata.original_task is True:
-                selections.append(name)
-        if not selections:
-            raise ValueError(f"No original task templates found for {task_name}")
-    else:
-        selections = template_names.split(",")
-    if template_idx is not None:
-        selections = [selections[template_idx]]
+    selections = {}
+    for cfg in template_cfgs:
+        curr_task_name = f'{task_name}_{cfg}'
+        if template_names == "all_templates":
+            templates = lm_eval.tasks.list_templates(curr_task_name)
+            selections[cfg] = templates
+        elif template_names == "original_templates":
+            templates = lm_eval.tasks.get_templates(curr_task_name)
+            curr_selections = []
+            for name in templates.all_template_names:
+                if templates[name].metadata.original_task is True:
+                    curr_selections.append(name)
+            selections[cfg] = curr_selections
+            if not selections:
+                raise ValueError(f"No original task templates found for {curr_task_name}")
+        else:
+            name_subset = template_names.split(",")
+            templates = lm_eval.tasks.get_templates(curr_task_name)
+            curr_selections = []
+            for name in templates.all_template_names:
+                for curr_name in name_subset:
+                    if name.startswith(curr_name):
+                        curr_selections.append(name)
+            selections[cfg] = curr_selections
+            
+        if template_idx is not None:
+            selections[cfg] = [selections[cfg][template_idx]]
     return selections
 
 

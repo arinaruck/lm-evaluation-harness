@@ -5,7 +5,7 @@ import logging
 import sys
 import numpy as np
 from tqdm import tqdm
-from typing import List, Optional
+from typing import List, Dict, Optional
 
 import lm_eval.models
 import lm_eval.tasks
@@ -25,8 +25,11 @@ def cli_evaluate(
     model_api_name: str,
     model_args: str,
     task_name: str,
+    task_tgt_cfg: str,
+    task_src_cfgs: str,
     task_args: str,
-    template_names: List[str],
+    target_template_names: Dict[str, List[str]],
+    source_template_names: Dict[str, List[str]],
     num_fewshot: Optional[int] = 0,
     batch_size: Optional[int] = None,
     device: Optional[str] = None,
@@ -52,9 +55,12 @@ def cli_evaluate(
             String arguments for the task. See:
                 `lm_eval.api.task.get_task_list_from_args_string`
             WARNING: To avoid parse errors, separators must not contain commas.
-        template_names (List[str]):
+        target_template_names (Dict[str, List[str]]):
             List of template names for the specified `task_name` to evaluate
-            under.
+            under, the template names correspond to the prompts in the languages of prompt_tgt_config.
+        source_template_names (Dict[str, List[str]]):
+            Dictionary of template names for the specified `task_name` to provide demonstrations,
+            the template names correspond to the prompts in the languages of prompt_src_config.
         num_fewshot (int, optional, defaults to 0):
             Number of examples in few-shot context.
         batch_size (int, optional, defaults to None):
@@ -74,8 +80,11 @@ def cli_evaluate(
     Returns:
         Dictionary of results.
     """
-    tasks = lm_eval.tasks.get_task_list_from_args_string(
-        task_name, template_names, task_args
+    target_tasks = lm_eval.tasks.get_tasks_from_args_string(
+        task_name, target_template_names, task_args, task_tgt_cfg
+    )
+    source_tasks = lm_eval.tasks.get_tasks_from_args_string(
+        task_name, source_template_names, task_args, task_src_cfgs
     )
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}
@@ -89,7 +98,7 @@ def cli_evaluate(
 
     results = evaluate(
         model=model,
-        tasks=tasks,
+        tasks=target_tasks[task_tgt_cfg],
         num_fewshot=num_fewshot,
         bootstrap_iters=bootstrap_iters,
         seed=seed,
@@ -115,7 +124,7 @@ def cli_evaluate(
 def evaluate(
     *,
     model: lm_eval.api.model.LM,
-    tasks: List[Task],
+    tasks: Dict[str, List[Task]],
     num_fewshot: Optional[int] = 0,
     bootstrap_iters: Optional[int] = 100000,
     seed: Optional[int] = DEFAULT_SEED,

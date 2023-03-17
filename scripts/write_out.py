@@ -25,7 +25,9 @@ def main():
     args = parse_args()
     rng = np.random.default_rng(args.seed)
 
-    template_names = utils.cli_template_names(args.task_name, args.template_names)
+    # fix due to the api change in favour of cross-lingual prompts
+    task_name, task_lang = task.split("_", -1)
+    template_names = utils.cli_template_names(task_name, args.template_names, [task_lang])[task_lang]
     tasks = lm_eval.get_task_list(args.task_name, template_names)
 
     os.makedirs(args.output_base_path, exist_ok=True)

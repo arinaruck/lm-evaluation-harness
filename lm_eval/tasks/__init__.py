@@ -1,5 +1,5 @@
 import logging
-from typing import List, Mapping, Tuple, Type, Optional, Union
+from typing import List, Dict, Mapping, Tuple, Type, Optional, Union
 from promptsource.templates import DatasetTemplates
 
 import lm_eval.api.utils
@@ -274,9 +274,9 @@ def get_task(task_name: str, template_name: str, **task_kwargs) -> Task:
     return task_class(prompt_template=template, **task_kwargs)
 
 
-def get_task_list(
-    task_name: str, template_names: List[str], **task_kwargs
-) -> List[Task]:
+def get_tasks(
+    task_name: str, template_names: Dict[str, List[str]], **task_kwargs
+) -> Dict[str, List[Task]]:
     """Returns a list of the same task but with multiple prompt templates.
 
     Args:
@@ -290,9 +290,12 @@ def get_task_list(
         A list of tasks with the same name but different prompt templates.
     """
     assert template_names, "Must specify at least one template name"
-    template_names = sorted(set(template_names))
-    return [get_task(task_name, t, **task_kwargs) for t in template_names]
-
+    tasks = {}
+    languages = task_kwargs.pop('languages')
+    for lang in languages:
+        # TODO: add different mixing strategies, for now only same lang is supported
+        tasks[lang] = [get_task(f'{task_name}_{lang}', t, **task_kwargs) for t in sorted(template_names[lang])]
+    return tasks
 
 def list_templates(task_name: str) -> List[str]:
     """Returns all template names available in `promptsource` for a given task."""
@@ -306,10 +309,11 @@ def get_templates(task_name: str) -> DatasetTemplates:
     return _get_templates_from_task(task_class)
 
 
-def get_task_list_from_args_string(
+def get_tasks_from_args_string(
     task_name: str,
     template_names: List[str],
     task_args: str,
+    task_cfg: str,
     additional_config: Optional[Mapping[str, str]] = None,
 ) -> List[Task]:
     """Returns a list of the same task but with multiple prompt templates, each
@@ -335,7 +339,8 @@ def get_task_list_from_args_string(
     additional_config = {} if additional_config is None else additional_config
     additional_args = {k: v for k, v in additional_config.items() if v is not None}
     kwargs.update(additional_args)
-    return get_task_list(task_name, template_names, **kwargs)
+    kwargs.update({'languages': task_cfg.split(',')})
+    return get_tasks(task_name, template_names, **kwargs)
 
 
 # Helper functions

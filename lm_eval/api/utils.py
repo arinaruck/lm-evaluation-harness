@@ -267,6 +267,7 @@ def cli_template_names(
     import lm_eval.tasks
 
     selections = {}
+    
     for cfg in template_cfgs:
         curr_task_name = f'{task_name}_{cfg}'
         if template_names == "all_templates":
@@ -293,6 +294,11 @@ def cli_template_names(
             
         if template_idx is not None:
             selections[cfg] = [selections[cfg][template_idx]]
+
+        teplate_language_agnostic_names = [template_name.split('_', -1)[0] for template_name in selections[cfg]]
+        # if we have both human and machine translated prompts, keep only the human translated ones
+        if len(set(teplate_language_agnostic_names)) != len(teplate_language_agnostic_names):
+            selections[cfg] = [template_name for template_name in selections[cfg] if template_name.endswith('ht')]
     return selections
 
 

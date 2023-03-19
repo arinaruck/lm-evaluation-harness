@@ -1,6 +1,7 @@
 import logging
 from typing import List, Dict, Mapping, Tuple, Type, Optional, Union
 from promptsource.templates import DatasetTemplates
+from collections import defaultdict
 
 import lm_eval.api.utils
 from lm_eval.api.task import Task
@@ -292,10 +293,18 @@ def get_tasks(
     assert template_names, "Must specify at least one template name"
     tasks = {}
     languages = task_kwargs.pop('languages')
+    tasks = defaultdict(list)
     for lang in languages:
         # TODO: add different mixing strategies, for now only same lang is supported
-        tasks[lang] = [get_task(f'{task_name}_{lang}', t, **task_kwargs) for t in sorted(template_names[lang])]
-    return tasks
+        for template_name in template_names[lang]:
+            language_agnostic_template_name = template_name.split('_', -1)[0]
+            tasks[language_agnostic_template_name].append(get_task(f'{task_name}_{lang}', template_name, **task_kwargs))
+    full_tasks = {}
+    # keep only prompts for which we have all languages
+    for p, tasks in tasks.items():
+        if len(tasks) == len(languages):
+            full_tasks[p] = tasks
+    return full_tasks
 
 def list_templates(task_name: str) -> List[str]:
     """Returns all template names available in `promptsource` for a given task."""

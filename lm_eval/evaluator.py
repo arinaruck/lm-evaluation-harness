@@ -12,7 +12,7 @@ import lm_eval.tasks
 import lm_eval.api.metric
 import lm_eval.api.model
 from lm_eval.api.utils import DEFAULT_SEED, set_seed
-from lm_eval.api.task import Task
+from lm_eval.api.task import Task, CrossLingualTask
 
 
 logger = logging.getLogger(__name__)
@@ -80,12 +80,21 @@ def cli_evaluate(
     Returns:
         Dictionary of results.
     """
+    # prompt name to list of tasks
     target_tasks = lm_eval.tasks.get_tasks_from_args_string(
         task_name, target_template_names, task_args, task_tgt_cfg
     )
+    # prompt name to list of tasks
     source_tasks = lm_eval.tasks.get_tasks_from_args_string(
         task_name, source_template_names, task_args, task_src_cfgs
     )
+    # a list of cross-lingual tasks for each prompt
+    cross_lingual_tasks =  []
+    common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
+    for prompt in common_prompts:
+        assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt))
+
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}
     )
@@ -95,10 +104,9 @@ def cli_evaluate(
         # TODO: Make `cache_location` path configurable thru an environment var.
         cache_location = f"lm_cache/{model_api_name}_{cache_args}.db"
         model = lm_eval.api.model.CachingLM(model, cache_location)
-
     results = evaluate(
         model=model,
-        tasks=target_tasks[task_tgt_cfg],
+        tasks=cross_lingual_tasks,
         num_fewshot=num_fewshot,
         bootstrap_iters=bootstrap_iters,
         seed=seed,
@@ -124,7 +132,7 @@ def cli_evaluate(
 def evaluate(
     *,
     model: lm_eval.api.model.LM,
-    tasks: Dict[str, List[Task]],
+    tasks: List[CrossLingualTask],
     num_fewshot: Optional[int] = 0,
     bootstrap_iters: Optional[int] = 100000,
     seed: Optional[int] = DEFAULT_SEED,
@@ -157,14 +165,14 @@ def evaluate(
     # TODO: Completely refactor this entire function to not be a huge mess, ideally breaking it down into smaller pieces
     task_dict = {}
     for task in tasks:
+        task_name = task.name
         if task.has_validation_docs() is False and task.has_test_docs() is False:
             logger.info(
-                f"Ignoring Task: {lm_eval.tasks.get_registry_name_from_task(task)} has no validation or test docs"
+                f"Ignoring Task: {task_name} has no validation or test docs"
             )
             continue
         # Create unique keys for each task-template pair.
-        task_name = lm_eval.tasks.get_registry_name_from_task(task)
-        template_name = task.prompt_template.name if task.prompt_template else None
+        template_name = task.lang_agnostic_template_name
         key = lm_eval.tasks._get_task_template_key(task_name, template_name)
         task_dict[key] = task
 
@@ -177,7 +185,9 @@ def evaluate(
     docs = {}
 
     # Build contexts and collect language model requests.
-    for task_template_key, task in task_dict.items():
+    for task_template_key, task in sorted(task_dict.items()):
+        set_seed(seed)
+        rng = np.random.default_rng(seed)
         task_docs = task.evaluation_docs()
 
         logger.info(f"\n» Assigning unique IDs to '{task_template_key}' docs")
@@ -186,7 +196,8 @@ def evaluate(
         )
 
         logger.info(f"\n» Filtering invalid docs from '{task_template_key}'")
-        task_docs = task_docs.filter(lambda d: not task.invalid_doc_for_prompt(d))
+        # 
+        task_docs = task_docs.filter(lambda d: not task.target_task.invalid_doc_for_prompt(d))
         task_docs = task_docs.shuffle(generator=rng)
 
         logger.info(f"\n» Constructing '{task_template_key}' contexts and requests")
@@ -197,7 +208,7 @@ def evaluate(
         ):
             docs[(task_template_key, doc_id)] = doc
             ctx, fewshotex_logging_info = task.fewshot_context(
-                doc=doc,
+                query_doc=doc,
                 num_fewshot=num_fewshot,
                 rng=rng,
             )

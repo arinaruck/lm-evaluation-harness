@@ -6,6 +6,7 @@ import numpy as np
 import promptsource.templates
 from abc import abstractmethod
 from typing import Callable, List, Mapping, Optional, Tuple, Union
+import math
 
 from lm_eval.api import utils
 from lm_eval.api.metric import (
@@ -43,7 +44,8 @@ class Task(abc.ABC):
 
     def __init__(
         self,
-        data_dir: Optional[str] = None,
+        target_data_dir: Optional[str] = None,
+        source_data_dirs: Optional[str] = None,
         cache_dir: Optional[str] = None,
         download_mode: Optional[str] = None,
     ):
@@ -71,7 +73,7 @@ class Task(abc.ABC):
                 - `datasets.DownloadMode.FORCE_REDOWNLOAD`
                     Fresh download and fresh dataset.
         """
-        self.download(data_dir, cache_dir, download_mode)
+        self.download(target_data_dir, cache_dir, download_mode)
         self._training_docs = None
         self._fewshot_docs = None
 
@@ -80,7 +82,7 @@ class Task(abc.ABC):
         data_dir: Optional[str] = None,
         cache_dir: Optional[str] = None,
         download_mode: Optional[str] = None,
-    ):
+    ) -> datasets.Dataset:
         """Downloads and returns the task dataset.
 
         NOTE: Override this method to download the dataset from a custom API.
@@ -801,3 +803,228 @@ class PerplexityTask(PromptSourceTask):
         return {
             "prompt_name": None,
         }
+
+    
+class CrossLingualTask:
+    def __init__(self, target_task: PromptSourceTask, source_tasks: List[PromptSourceTask], lang_agnostic_template_name: str):
+        self.lang_agnostic_template_name = lang_agnostic_template_name
+        self.target_task = target_task
+        self.source_tasks = source_tasks
+        assert set([source_task.text_target_separator for source_task in source_tasks]) == set([target_task.text_target_separator]), \
+              "All source and target tasks must have the same text_target_separator"
+        self.text_target_separator = target_task.text_target_separator
+        assert set([source_task.example_separator for source_task in source_tasks]) == set([target_task.example_separator]), \
+              "All source and target tasks must have the same example_separator"
+        self.example_separator = target_task.example_separator
+        assert set([source_task.VERSION for source_task in source_tasks]) == set([target_task.VERSION]), \
+              "All source and target tasks must have the same version"
+        self.VERSION = target_task.VERSION
+
+
+    @property
+    def name(self):
+        dataset = self.target_task.DATASET_PATH
+        return f"crosslingual {dataset}. src: {', '.join([source_task.DATASET_NAME for source_task in self.source_tasks])}; tgt: {self.target_task.DATASET_NAME}"
+
+    @property
+    def save_examples(self):
+        return self.target_task.save_examples
+
+    def evaluation_docs(self) -> datasets.Dataset:
+        """Returns the `dataset` split to be used for evaluation."""
+        return self.target_task.evaluation_docs()
+
+    # TODO: concat or not concat?
+    def fewshot_docs(self) -> List[datasets.Dataset]:
+        """Returns the `dataset` split that the few-shot examples should be sample
+        from. This prioritizes the `train_docs` split as the few-shot example
+        source, then `validation_docs`, and lastly `test_docs`.
+        """
+        return [source_task.fewshot_docs() for source_task in self.source_tasks]
+    
+    def has_train_docs(self) -> bool:
+        return any([source_task.has_train_docs() for source_task in self.source_tasks])
+
+    def has_validation_docs(self) -> bool:
+        """
+        Determines if one can use validation for fewshot or evaluation
+        """
+        # validation can be used for fewshot
+        if self.has_test_docs():
+            return any([source_task.has_validation_docs() for source_task in self.source_tasks])
+        # validation can be used for evaluation
+        if self.has_train_docs():
+            return self.target_task.has_validation_docs()
+        return False
+
+    def has_test_docs(self) -> bool:
+        return self.target_task.has_test_docs()
+
+    def format_example(self, text: str, target: str, separator: str) -> str:
+        """Returns the text and target combined by the specified `separator`"""
+        return text + separator + target
+
+    def fewshot_examples(
+        self,
+        docs: List[datasets.Dataset],
+        k: int,
+        rng: np.random.Generator,
+        prompt: dict = None,
+    ) -> Tuple[List[dict], List[int]]:
+        """Returns `k` random examples from the set of documents in `docs`.
+
+        Args:
+            docs (List[datasets.Dataset]):
+                Thelist of datasets of documents to sample few-shot examples from. 
+                Each dataset is defined by the language and prompt.
+            k (int):
+                The number of few-shot examples.
+            rng (np.random.Generator):
+                The pseudo-random number generator used to randomly sample examples.
+            prompt (Optional[dict]):
+                The prompt document. Specify this to ensure the prompt is not in
+                the set of few-shot examples.
+
+        Returns:
+            A tuple of two lists. The first list contains the few-shot examples
+        """
+
+        shots_per_lang = math.ceil(k / len(docs))
+        fewshot_examples, fewshot_idx = [], []
+        for ds_id, doc in enumerate(docs):
+            random_indices = np.arange(len(doc)).tolist()
+            # so different languages don't get the same examples
+            random_indices = random_indices[ds_id:] + random_indices[:ds_id]
+            rng.shuffle(random_indices)
+            i = 0
+            for idx in random_indices:
+                if i >= shots_per_lang or len(fewshot_examples) == k:  # Break when we have enough examples.
+                    break
+                is_same_prompt = prompt is not None and all(
+                    # Skips the `doc_id` key assigned to `prompt`s during eval pre-processing.
+                    doc[idx][k] == prompt[k]
+                    for k in doc[idx].keys()
+                )
+                if self.source_tasks[ds_id].invalid_doc_for_prompt(doc[idx]) or is_same_prompt:
+                    continue
+                fewshot_examples.append(doc[idx])
+                fewshot_idx.append((int(idx), ds_id))
+                i += 1
+            if len(fewshot_examples) == k:
+                break
+        return fewshot_examples, fewshot_idx
+
+    def fewshot_context(
+        self, query_doc: dict, num_fewshot: int, rng: Optional[np.random.Generator]
+    ) -> Tuple[str, dict]:
+        """Returns a few-shot context string made up of `num_fewshot` number of
+        labeled examples, and an appended prompt example without labeling.
+
+        Args:
+            query_doc (dict):
+                The document as returned from training_docs, validation_docs, or test_docs.
+            num_fewshot (int):
+                The number of fewshot examples to provide in the returned context string.
+            rng (numpy.random.Generator):
+                The pseudo-random number generator used to randomly sample few-shot examples.
+
+        Returns:
+            A few-shot context string and a dictionary containing few-shot context
+            logging information.
+                ctx (str):
+                    The fewshot context.
+                logging_info (dict):
+                    A `dict` of logging info that can be used to identify few-shot
+                    sources.
+        """
+        assert (
+            rng is not None
+        ), "A `numpy.random.Generator` argument must be provided to `rng`"
+
+        if num_fewshot == 0:
+            labeled_examples = ""
+            fewshot_idx, fewshot_target_idx, fewshot_src = ([], [], None)
+        else:
+            # Construct few-shot labeled examples.
+            fewshot_docs = self.fewshot_docs()
+            fewshot_srcs = [str(fewshot_doc.split) for fewshot_doc in fewshot_docs]
+            fewshot_examples, fewshot_idx = self.fewshot_examples(
+                fewshot_docs, k=num_fewshot, rng=rng, prompt=query_doc
+            )
+            labeled_examples_list = []
+            fewshot_target_idx = []
+            for fewshot_example, (_, task_id) in zip(fewshot_examples, fewshot_idx):
+                text, targets = self.source_tasks[task_id].prompt_template.apply(fewshot_example)
+                # Choose 1 random target from multi-reference targets.
+                target_idx = int(rng.integers(0, len(targets)))
+                target = targets[target_idx].strip()
+                labeled_examples_list.append(
+                    self.format_example(text, target, self.text_target_separator)
+                )
+                fewshot_target_idx.append(target_idx)
+            labeled_examples = self.example_separator.join(labeled_examples_list)
+            # Leave an extra `example_separator` right before the prompt.
+            labeled_examples += self.example_separator
+
+        prompt = self.target_task.doc_to_text(query_doc)
+        ctx = labeled_examples + prompt
+        logging_info = {
+            "fewshot_idx": fewshot_idx,
+            "fewshot_target_idx": fewshot_target_idx,
+            "fewshot_source": fewshot_srcs,
+            "fewshot_num": num_fewshot,
+            "ctx": ctx,
+        }
+        return ctx, logging_info
+
+    def construct_requests(self, doc: dict, ctx: str, args: dict) -> List[Request]:
+        """Uses RequestFactory to construct Requests and returns an iterable of
+        Requests which will be sent to the LM.
+
+        Args:
+            doc (dict):
+                The document as returned from training_docs, validation_docs, or
+                test_docs.
+            ctx (str):
+                The context string, generated by fewshot_context. This includes
+                the natural language description, as well as the few shot examples,
+                and the question part of the document for `doc`.
+            args (dict):
+                The specifics of the context, including number of few shots.
+
+        Returns:
+            An iterable of `Request` objects.
+        """
+        return self.target_task.construct_requests(doc, ctx, args)
+
+    def process_results(
+        self, doc: dict, results: list
+    ) -> Union[dict, Tuple[dict, dict]]:
+        """Take a single document and the LM results and evaluates, returning a
+        dict where keys are the names of sub-metrics and values are the values of
+        the metric for that one document.
+
+        NOTE: This function automates processing by using the `promptsource`
+        metadata to determine the metric.
+
+        Args:
+            doc (dict):
+                The document as returned from training_docs, validation_docs, or
+                test_docs.
+            results (list):
+                The results of the requests created in construct_requests.
+
+        Returns:
+            A dict of metric results.
+        """
+        return self.target_task.process_results(doc, results)
+
+   
+    def aggregation(self) -> Mapping[str, Callable]:
+        return self.target_task.aggregation()
+
+    def higher_is_better(self) -> Mapping[str, bool]:   
+        return self.target_task.higher_is_better()
+
+    def get_logging_info(self):
+        return self.target_task.get_logging_info()

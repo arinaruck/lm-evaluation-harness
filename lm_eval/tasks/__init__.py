@@ -36,6 +36,7 @@ from . import tydiqa
 from . import wino_bias
 from . import wmt
 from . import xnli
+from . import xcopa
 from . import xquad
 
 
@@ -134,6 +135,18 @@ TASK_REGISTRY = {
     "xnli_hi": xnli.XNLIHi,
     "xnli_sw": xnli.XNLISw,
     "xnli_ur": xnli.XNLIUr,
+    # XCOPA
+    "xcopa_it": xcopa.XCOPAIt,
+    "xcopa_et": xcopa.XCOPAEt,
+    "xcopa_ht": xcopa.XCOPAHt,
+    "xcopa_id": xcopa.XCOPAId,
+    "xcopa_qu": xcopa.XCOPAQu,
+    "xcopa_sw": xcopa.XCOPASw,
+    "xcopa_th": xcopa.XCOPATh,
+    "xcopa_ta": xcopa.XCOPATa,
+    "xcopa_tr": xcopa.XCOPATr,
+    "xcopa_vi": xcopa.XCOPAVi,
+    "xcopa_zh": xcopa.XCOPAZh,
     # PIAF
     "piaf": piaf.PIAF,
     # Flores 101 (MT)
@@ -256,7 +269,7 @@ def list_tasks() -> List[str]:
     return sorted(list(TASK_REGISTRY))
 
 
-def get_task(task_name: str, template_name: str, **task_kwargs) -> Task:
+def get_task(task_name: str, task_lang: str, template_name: str, template_lang: str, **task_kwargs) -> Task:
     """Returns a task from the registry and instantiates it with the `promptsource`
     template specified by `template_name`.
 
@@ -270,8 +283,8 @@ def get_task(task_name: str, template_name: str, **task_kwargs) -> Task:
     Returns:
         A task instance with formatting specified by `template_name`.
     """
-    task_class = _get_task_from_registry(task_name)
-    template = get_templates(task_name)[template_name]
+    task_class = _get_task_from_registry(f"{task_name}_{task_lang}")
+    template = get_templates(f"{task_name}_{template_lang}")[template_name]
     return task_class(prompt_template=template, **task_kwargs)
 
 
@@ -292,17 +305,23 @@ def get_tasks(
     """
     assert template_names, "Must specify at least one template name"
     tasks = {}
-    languages = task_kwargs.pop('languages')
+    task_languages = task_kwargs.pop('task_languages')
+    prompt_languages = task_kwargs.pop('prompt_languages')
+    if len(prompt_languages) != 1 and len(prompt_languages) != len(task_languages):
+        raise ValueError("Must specify either one prompt language or one per task")
+    if len(prompt_languages) == 1:
+        prompt_languages = prompt_languages * len(task_languages)
     tasks = defaultdict(list)
-    for lang in languages:
+    for prompt_lang, task_lang in zip(prompt_languages, task_languages):
         # TODO: add different mixing strategies, for now only same lang is supported
-        for template_name in template_names[lang]:
+        for template_name in template_names[prompt_lang]:
             language_agnostic_template_name = template_name.split('_', -1)[0]
-            tasks[language_agnostic_template_name].append(get_task(f'{task_name}_{lang}', template_name, **task_kwargs))
+            tasks[language_agnostic_template_name].append(get_task(task_name, task_lang, 
+                                                                   template_name, prompt_lang, **task_kwargs))
     full_tasks = {}
     # keep only prompts for which we have all languages
     for p, tasks in tasks.items():
-        if len(tasks) == len(languages):
+        if len(tasks) == len(task_languages):
             full_tasks[p] = tasks
     return full_tasks
 
@@ -321,6 +340,7 @@ def get_templates(task_name: str) -> DatasetTemplates:
 def get_tasks_from_args_string(
     task_name: str,
     template_names: List[str],
+    prompt_cfg: str,
     task_args: str,
     task_cfg: str,
     additional_config: Optional[Mapping[str, str]] = None,
@@ -348,7 +368,7 @@ def get_tasks_from_args_string(
     additional_config = {} if additional_config is None else additional_config
     additional_args = {k: v for k, v in additional_config.items() if v is not None}
     kwargs.update(additional_args)
-    kwargs.update({'languages': task_cfg.split(',')})
+    kwargs.update({'task_languages': task_cfg.split(','), 'prompt_languages': prompt_cfg.split(',')})
     return get_tasks(task_name, template_names, **kwargs)
 
 

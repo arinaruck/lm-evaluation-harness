@@ -5,6 +5,7 @@ import sys
 import torch
 from typing import Callable, Final, Iterable, List, Optional, Tuple, Union, Dict
 from collections.abc import MutableMapping
+import lm_eval.tasks
 from transformers import set_seed as transformers_set_seed
 
 
@@ -264,7 +265,6 @@ def cli_template_names(
     Returns:
         A list of template names.
     """
-    import lm_eval.tasks
 
     selections = {}
     

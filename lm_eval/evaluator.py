@@ -30,6 +30,8 @@ def cli_evaluate(
     task_args: str,
     target_template_names: Dict[str, List[str]],
     source_template_names: Dict[str, List[str]],
+    prompt_tgt_cfg: str,
+    prompt_src_cfgs: str,
     num_fewshot: Optional[int] = 0,
     batch_size: Optional[int] = None,
     device: Optional[str] = None,
@@ -82,11 +84,11 @@ def cli_evaluate(
     """
     # prompt name to list of tasks
     target_tasks = lm_eval.tasks.get_tasks_from_args_string(
-        task_name, target_template_names, task_args, task_tgt_cfg
+        task_name, target_template_names, prompt_tgt_cfg, task_args, task_tgt_cfg
     )
     # prompt name to list of tasks
     source_tasks = lm_eval.tasks.get_tasks_from_args_string(
-        task_name, source_template_names, task_args, task_src_cfgs
+        task_name, source_template_names, prompt_src_cfgs, task_args, task_src_cfgs
     )
     # a list of cross-lingual tasks for each prompt
     cross_lingual_tasks =  []

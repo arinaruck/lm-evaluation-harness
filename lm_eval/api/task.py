@@ -943,7 +943,7 @@ class CrossLingualTask:
 
         if num_fewshot == 0:
             labeled_examples = ""
-            fewshot_idx, fewshot_target_idx, fewshot_src = ([], [], None)
+            fewshot_idx, fewshot_target_idx, fewshot_srcs = ([], [], None)
         else:
             # Construct few-shot labeled examples.
             fewshot_docs = self.fewshot_docs()

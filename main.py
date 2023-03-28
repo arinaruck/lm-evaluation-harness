@@ -207,6 +207,8 @@ def main():
         task_args=args.task_args,
         target_template_names=target_template_names,
         source_template_names=source_template_names,
+        prompt_tgt_cfg=args.prompt_tgt_cfg,
+        prompt_src_cfgs=args.prompt_src_cfgs if args.prompt_src_cfgs else args.prompt_tgt_cfg,
         num_fewshot=args.num_fewshot,
         batch_size=args.batch_size,
         device=args.device,

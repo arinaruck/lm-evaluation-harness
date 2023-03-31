@@ -35,6 +35,7 @@ from . import superglue
 from . import tydiqa
 from . import wino_bias
 from . import wmt
+from . import paws_x
 from . import xnli
 from . import xcopa
 from . import xquad
@@ -147,6 +148,14 @@ TASK_REGISTRY = {
     "xcopa_tr": xcopa.XCOPATr,
     "xcopa_vi": xcopa.XCOPAVi,
     "xcopa_zh": xcopa.XCOPAZh,
+    # PAWS-X
+    "paws-x_en": paws_x.PAWSXEn,
+    "paws-x_fr": paws_x.PAWSXFr,
+    "paws-x_de": paws_x.PAWSXDe,
+    "paws-x_ja": paws_x.PAWSXJa,
+    "paws-x_ko": paws_x.PAWSXKo,
+    "paws-x_zh": paws_x.PAWSXZh,
+    "paws-x_es": paws_x.PAWSXEs,
     # PIAF
     "piaf": piaf.PIAF,
     # Flores 101 (MT)

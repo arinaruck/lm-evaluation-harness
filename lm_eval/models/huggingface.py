@@ -544,7 +544,7 @@ class AutoSeq2SeqLM(HuggingFaceAutoLM):
                 target_logits = torch.gather(
                     log_softmax, 1, target_tokens.unsqueeze(-1)
                 ).squeeze(-1)
-                answer = (float(target_logits.sum()), bool(max_equal))
+                answer = (float(target_logits.mean()), bool(max_equal))
                 results.append(answer)
                 if cache_key is not None:
                     self.cache_hook.add_partial("loglikelihood", cache_key, answer)

@@ -237,7 +237,6 @@ def group(arr: Iterable, fn: Callable) -> List:
 
 # CLI utils
 
-
 def cli_template_names(
     task_name: str, template_names: str, template_cfgs: List[str], template_idx: int = None,
 ) -> Dict[str, List[str]]:

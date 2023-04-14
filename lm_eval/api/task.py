@@ -451,7 +451,8 @@ class PromptSourceTask(Task):
                 the natural language description, as well as the few shot examples,
                 and the question part of the document for `doc`.
             args (dict):
-                The specifics of the context, including number of few shots.
+                The specifics of the context, including number of few shots and the prompt type: 
+                xglm or promptsource.
 
         Returns:
             An iterable of `Request` objects.
@@ -461,9 +462,17 @@ class PromptSourceTask(Task):
         if answer_choices_list:
             # If answer_choices_list, then this is a ranked choice prompt.
             for answer_choice in answer_choices_list:
-                ll_answer_choice, _ = rf.loglikelihood(
-                    ctx, self.text_target_separator + answer_choice
-                )
+                if args['prompt_type'] == 'xglm':
+                    examples = ctx.split(self.example_separator)
+                    support = self.example_separator.join(examples[:-1])
+                    query = examples[-1]
+                    ll_answer_choice, _ = rf.loglikelihood(
+                        support, query.format(answer_choice)
+                    )
+                else:
+                    ll_answer_choice, _ = rf.loglikelihood(
+                        ctx, self.text_target_separator + answer_choice
+                    )
                 requests.append(ll_answer_choice)
         else:
             # If not, then this is a generation prompt.
@@ -810,6 +819,7 @@ class CrossLingualTask:
         self.lang_agnostic_template_name = lang_agnostic_template_name
         self.target_task = target_task
         self.source_tasks = source_tasks
+        self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
         assert set([source_task.text_target_separator for source_task in source_tasks]) == set([target_task.text_target_separator]), \
               "All source and target tasks must have the same text_target_separator"
         self.text_target_separator = target_task.text_target_separator
@@ -862,6 +872,8 @@ class CrossLingualTask:
 
     def format_example(self, text: str, target: str, separator: str) -> str:
         """Returns the text and target combined by the specified `separator`"""
+        if self.prompt_type == 'xglm':
+            return text.format(target)
         return text + separator + target
 
     def fewshot_examples(

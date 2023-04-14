@@ -215,7 +215,7 @@ def evaluate(
                 rng=rng,
             )
             fewshotex_logging_info["doc_id"] = doc["doc_id"]
-            args = {"num_fewshot": num_fewshot}
+            args = {"num_fewshot": num_fewshot, "prompt_type": task.prompt_type}
             reqs = task.construct_requests(doc, ctx, args)
             if not isinstance(reqs, (list, tuple)):
                 reqs = [reqs]

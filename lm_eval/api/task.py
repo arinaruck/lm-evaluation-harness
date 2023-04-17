@@ -905,7 +905,7 @@ class CrossLingualTask:
         fewshot_examples, fewshot_idx = [], []
         for ds_id, doc in enumerate(docs):
             random_indices = np.arange(len(doc)).tolist()
-            # so different languages don't get the same examples
+            # so different languages within the context don't get the same examples
             random_indices = random_indices[ds_id:] + random_indices[:ds_id]
             rng.shuffle(random_indices)
             i = 0
@@ -917,7 +917,8 @@ class CrossLingualTask:
                     doc[idx][k] == prompt[k]
                     for k in doc[idx].keys()
                 )
-                if self.source_tasks[ds_id].invalid_doc_for_prompt(doc[idx]) or is_same_prompt:
+                if self.invalid_doc_for_prompt(doc[idx]) or \
+                   self.source_tasks[ds_id].invalid_doc_for_prompt(doc[idx]) or is_same_prompt:
                     continue
                 fewshot_examples.append(doc[idx])
                 fewshot_idx.append((int(idx), ds_id))
@@ -988,6 +989,17 @@ class CrossLingualTask:
             "ctx": ctx,
         }
         return ctx, logging_info
+
+    def invalid_doc_for_prompt(self, doc: dict) -> bool:
+        def _invalid_format(doc: dict) -> bool:
+            # due to context formatting
+            for context in doc.values():
+                if isinstance(context, str) and ('{' in context or '}' in context):
+                    return True
+            return False
+        if self.prompt_type == 'xglm' and _invalid_format(doc):
+            return True
+        return False
 
     def construct_requests(self, doc: dict, ctx: str, args: dict) -> List[Request]:
         """Uses RequestFactory to construct Requests and returns an iterable of

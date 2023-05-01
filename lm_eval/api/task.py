@@ -852,8 +852,8 @@ class CrossLingualTask:
         """
         return [source_task.fewshot_docs() for source_task in self.source_tasks]
     
-    def has_train_docs(self) -> bool:
-        return any([source_task.has_train_docs() for source_task in self.source_tasks])
+    def has_training_docs(self) -> bool:
+        return any([source_task.has_training_docs() for source_task in self.source_tasks])
 
     def has_validation_docs(self) -> bool:
         """
@@ -863,7 +863,7 @@ class CrossLingualTask:
         if self.has_test_docs():
             return any([source_task.has_validation_docs() for source_task in self.source_tasks])
         # validation can be used for evaluation
-        if self.has_train_docs():
+        if self.has_training_docs():
             return self.target_task.has_validation_docs()
         return False
 

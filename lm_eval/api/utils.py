@@ -294,10 +294,17 @@ def cli_template_names(
         if template_idx is not None:
             selections[cfg] = [selections[cfg][template_idx]]
 
-        teplate_language_agnostic_names = [template_name.split('_', -1)[0] for template_name in selections[cfg]]
+        template_language_agnostic_names = [template_name.split('_', -1)[0] for template_name in selections[cfg]]
         # if we have both human and machine translated prompts, keep only the human translated ones
-        if len(set(teplate_language_agnostic_names)) != len(teplate_language_agnostic_names):
-            selections[cfg] = [template_name for template_name in selections[cfg] if template_name.endswith('ht')]
+        if len(set(template_language_agnostic_names)) != len(template_language_agnostic_names):
+            filtered_selections = []
+            # keep only the human translated prompts, when both human and machine translated prompts are present
+            for template_name in selections[cfg]:
+                if template_language_agnostic_names.count(template_name.split('_', -1)[0]) == 1:
+                    filtered_selections.append(template_name)
+                elif template_name.endswith('ht'):
+                    filtered_selections.append(template_name)
+            selections[cfg] = filtered_selections
     return selections
 
 

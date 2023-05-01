@@ -37,6 +37,7 @@ from . import wino_bias
 from . import wmt
 from . import paws_x
 from . import xnli
+from . import rule_taker
 from . import xcopa
 from . import xquad
 
@@ -136,6 +137,12 @@ TASK_REGISTRY = {
     "xnli_hi": xnli.XNLIHi,
     "xnli_sw": xnli.XNLISw,
     "xnli_ur": xnli.XNLIUr,
+    # RuleTaker
+    "rule_taker_depth-0": rule_taker.RuleTakerDepth0,
+    "rule_taker_depth-1": rule_taker.RuleTakerDepth1,
+    "rule_taker_depth-2": rule_taker.RuleTakerDepth2,
+    "rule_taker_depth-3": rule_taker.RuleTakerDepth3,
+    "rule_taker_depth-5": rule_taker.RuleTakerDepth5,
     # XCOPA
     "xcopa_it": xcopa.XCOPAIt,
     "xcopa_et": xcopa.XCOPAEt,

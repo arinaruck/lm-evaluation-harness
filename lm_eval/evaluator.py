@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from typing import List, Dict, Optional
 
@@ -13,7 +14,7 @@ import lm_eval.api.metric
 import lm_eval.api.model
 from lm_eval.api.utils import DEFAULT_SEED, set_seed
 from lm_eval.api.task import Task, CrossLingualTask
-
+from sklearn.metrics import confusion_matrix, classification_report
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -253,6 +254,7 @@ def evaluate(
     # Unpack results and sort back in order and return control to Task
     vals = collections.defaultdict(list)
     example_logger = logging.getLogger("examples")
+    examples = collections.defaultdict(list)
     for (task_template_key, doc_id), per_doc_requests in process_response_queue.items():
         per_doc_requests.sort(key=lambda x: x[0])
         per_doc_results = [x[1] for x in per_doc_requests]
@@ -268,6 +270,7 @@ def evaluate(
             example.update(fewshot_logging_info)
             example.update(task.get_logging_info())
             example_logger.info(json.dumps(example))
+            examples[example['prompt_name']].append(example)
         else:
             metrics = output
             example = fewshot_logging_info
@@ -279,7 +282,24 @@ def evaluate(
 
     # Aggregate results
     metric_results = []
+
+    for prompt_name in examples:
+        if 'pred' in examples[prompt_name][0] and 'target' in examples[prompt_name][0]:
+            preds = [ex['pred'] for ex in examples[prompt_name]]
+            labels = [ex['target'] for ex in examples[prompt_name]]
+            logger.info(f"prompt name: {prompt_name}\n" + 
+                        classification_report(labels, preds))
+            logger.info(f'labels stats: {collections.Counter(labels)}')
+            logger.info(f'pred stats: {collections.Counter(preds)}')
+
+            label_names = sorted(examples[prompt_name][0]['answer_choices_list'])
+            confusion_mtx = confusion_matrix(labels, preds, labels=label_names)
+            df = pd.DataFrame(confusion_mtx, index=label_names, columns=label_names)
+            logger.info(df.to_markdown())
+
+    
     for (task_template_key, metric), items in vals.items():
+
         task_name, prompt_name = lm_eval.tasks._split_task_template_key(
             task_template_key
         )

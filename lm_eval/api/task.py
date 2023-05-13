@@ -403,7 +403,7 @@ class PromptSourceTask(Task):
 
         if num_fewshot == 0:
             labeled_examples = ""
-            fewshot_idx, fewshot_target_idx, fewshot_src = ([], [], None)
+            fewshot_idx, fewshot_targets, fewshot_src = ([], [], None)
         else:
             # Construct few-shot labeled examples.
             fewshot_docs = self.fewshot_docs()
@@ -412,7 +412,7 @@ class PromptSourceTask(Task):
                 fewshot_docs, k=num_fewshot, rng=rng, prompt=doc
             )
             labeled_examples_list = []
-            fewshot_target_idx = []
+            fewshot_targets = []
             for fewshot_example in fewshot_examples:
                 text = self.doc_to_text(fewshot_example)
                 targets = self.doc_to_target(fewshot_example)
@@ -422,7 +422,7 @@ class PromptSourceTask(Task):
                 labeled_examples_list.append(
                     self.format_example(text, target, self.text_target_separator)
                 )
-                fewshot_target_idx.append(target_idx)
+                fewshot_targets.append(target)
             labeled_examples = self.example_separator.join(labeled_examples_list)
             # Leave an extra `example_separator` right before the prompt.
             labeled_examples += self.example_separator
@@ -431,7 +431,7 @@ class PromptSourceTask(Task):
         ctx = labeled_examples + prompt
         logging_info = {
             "fewshot_idx": fewshot_idx,
-            "fewshot_target_idx": fewshot_target_idx,
+            "fewshot_target": fewshot_targets,
             "fewshot_source": fewshot_src,
             "fewshot_num": num_fewshot,
             "ctx": ctx,
@@ -956,7 +956,7 @@ class CrossLingualTask:
 
         if num_fewshot == 0:
             labeled_examples = ""
-            fewshot_idx, fewshot_target_idx, fewshot_srcs = ([], [], None)
+            fewshot_idx, fewshot_targets, fewshot_srcs = ([], [], None)
         else:
             # Construct few-shot labeled examples.
             fewshot_docs = self.fewshot_docs()
@@ -965,7 +965,7 @@ class CrossLingualTask:
                 fewshot_docs, k=num_fewshot, rng=rng, prompt=query_doc
             )
             labeled_examples_list = []
-            fewshot_target_idx = []
+            fewshot_targets = []
             for fewshot_example, (_, task_id) in zip(fewshot_examples, fewshot_idx):
                 text, targets = self.source_tasks[task_id].prompt_template.apply(fewshot_example)
                 # Choose 1 random target from multi-reference targets.
@@ -974,7 +974,7 @@ class CrossLingualTask:
                 labeled_examples_list.append(
                     self.format_example(text, target, self.text_target_separator)
                 )
-                fewshot_target_idx.append(target_idx)
+                fewshot_targets.append(target)
             labeled_examples = self.example_separator.join(labeled_examples_list)
             # Leave an extra `example_separator` right before the prompt.
             labeled_examples += self.example_separator
@@ -983,7 +983,7 @@ class CrossLingualTask:
         ctx = labeled_examples + prompt
         logging_info = {
             "fewshot_idx": fewshot_idx,
-            "fewshot_target_idx": fewshot_target_idx,
+            "fewshot_targets": fewshot_targets,
             "fewshot_source": fewshot_srcs,
             "fewshot_num": num_fewshot,
             "ctx": ctx,

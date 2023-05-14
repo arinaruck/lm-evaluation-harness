@@ -467,7 +467,7 @@ class PromptSourceTask(Task):
                     support = self.example_separator.join(examples[:-1])
                     query = examples[-1]
                     candidate = query.format(answer_choice)
-                    premise = candidate.split(answer_choice, 1)[0]
+                    premise = candidate.split(answer_choice, 1)[0] + answer_choice
                     hypothesis = candidate[len(premise):]
                     ll_answer_choice, _ = rf.loglikelihood(
                         support + premise, hypothesis

@@ -121,6 +121,9 @@ def parse_args():
         "--no_tracking", action="store_true", help="Skip carbon emission tracking"
     )
     parser.add_argument(
+        "--stratify", action="store_true", help="Stratify examples by label"
+    )
+    parser.add_argument(
         "--use_cache",
         action="store_true",
         help="Whether to cache your model's predictions or not",
@@ -216,6 +219,7 @@ def main():
         bootstrap_iters=args.bootstrap_iters,
         seed=args.seed,
         limit=args.limit,
+        stratify=args.stratify,
     )
     if args.no_tracking:
         results = evaluator.cli_evaluate(**evaluate_args)

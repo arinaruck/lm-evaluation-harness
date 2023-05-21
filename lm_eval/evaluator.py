@@ -40,6 +40,7 @@ def cli_evaluate(
     bootstrap_iters: Optional[int] = 100000,
     seed: Optional[int] = DEFAULT_SEED,
     limit: Optional[int] = None,
+    stratify: Optional[bool] = False,
 ) -> dict:
     """Evaluate a model from an api on a given task with multiple possible prompt
     formats. This is effectively a wrapper around `evaluate` for command-line
@@ -96,7 +97,7 @@ def cli_evaluate(
     common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
     for prompt in common_prompts:
         assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
-        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt))
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify))
 
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}

@@ -7,6 +7,7 @@ import promptsource.templates
 from abc import abstractmethod
 from typing import Callable, List, Mapping, Optional, Tuple, Union
 import math
+from collections import Counter
 
 from lm_eval.api import utils
 from lm_eval.api.metric import (
@@ -467,10 +468,10 @@ class PromptSourceTask(Task):
                     support = self.example_separator.join(examples[:-1])
                     query = examples[-1]
                     candidate = query.format(answer_choice)
-                    premise = candidate.split(answer_choice, 1)[0] + answer_choice
+                    premise = candidate.split(answer_choice, 1)[0]
                     hypothesis = candidate[len(premise):]
                     ll_answer_choice, _ = rf.loglikelihood(
-                        support + premise, hypothesis
+                        support, premise + hypothesis
                     )
                 else:
                     ll_answer_choice, _ = rf.loglikelihood(
@@ -818,11 +819,12 @@ class PerplexityTask(PromptSourceTask):
 
     
 class CrossLingualTask:
-    def __init__(self, target_task: PromptSourceTask, source_tasks: List[PromptSourceTask], lang_agnostic_template_name: str):
+    def __init__(self, target_task: PromptSourceTask, source_tasks: List[PromptSourceTask], lang_agnostic_template_name: str, stratify: bool = False):
         self.lang_agnostic_template_name = lang_agnostic_template_name
         self.target_task = target_task
         self.source_tasks = source_tasks
         self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
+        self.stratify = stratify
         assert set([source_task.text_target_separator for source_task in source_tasks]) == set([target_task.text_target_separator]), \
               "All source and target tasks must have the same text_target_separator"
         self.text_target_separator = target_task.text_target_separator
@@ -879,12 +881,21 @@ class CrossLingualTask:
             return text.format(target)
         return text + separator + target
 
+    def _invalid_example(self, example, prompt, ds_id):
+        is_same_prompt = prompt is not None and all(
+            # Skips the `doc_id` key assigned to `prompt`s during eval pre-processing.
+            example[k] == prompt[k]
+            for k in example.keys()
+        )
+        return self.invalid_doc_for_prompt(example) or self.source_tasks[ds_id].invalid_doc_for_prompt(example) or is_same_prompt
+
     def fewshot_examples(
         self,
         docs: List[datasets.Dataset],
         k: int,
         rng: np.random.Generator,
         prompt: dict = None,
+        stratify: bool = False,
     ) -> Tuple[List[dict], List[int]]:
         """Returns `k` random examples from the set of documents in `docs`.
 
@@ -906,22 +917,44 @@ class CrossLingualTask:
 
         shots_per_lang = math.ceil(k / len(docs))
         fewshot_examples, fewshot_idx = [], []
+
+        n_labels = len(self.target_task.prompt_template.answer_choices)
         for ds_id, doc in enumerate(docs):
             random_indices = np.arange(len(doc)).tolist()
             # so different languages within the context don't get the same examples
             random_indices = random_indices[ds_id:] + random_indices[:ds_id]
             rng.shuffle(random_indices)
+            if stratify:
+                # stratify by label
+                shots_per_label = shots_per_lang // n_labels
+                stratified_indices = []
+                label_indices = Counter()
+                for i, idx in enumerate(random_indices):
+                    label = doc[idx]['label']
+                    if self._invalid_example(doc[idx], prompt, ds_id):
+                        continue
+                    if label_indices[label] < shots_per_label:
+                        stratified_indices.append(idx)
+                        label_indices[label] += 1
+                    if len(stratified_indices) == shots_per_label * n_labels:
+                        break
+                
+                # not enough examples for each label
+                while len(stratified_indices) < shots_per_lang:
+                    idx = random_indices[i]
+                    label = doc[idx]['label']
+                    if label_indices[label] == shots_per_label:
+                        stratified_indices.append(idx)
+                        label_indices[label] += 1
+                    i += 1
+                random_indices = stratified_indices
+
+                    
             i = 0
             for idx in random_indices:
                 if i >= shots_per_lang or len(fewshot_examples) == k:  # Break when we have enough examples.
                     break
-                is_same_prompt = prompt is not None and all(
-                    # Skips the `doc_id` key assigned to `prompt`s during eval pre-processing.
-                    doc[idx][k] == prompt[k]
-                    for k in doc[idx].keys()
-                )
-                if self.invalid_doc_for_prompt(doc[idx]) or \
-                   self.source_tasks[ds_id].invalid_doc_for_prompt(doc[idx]) or is_same_prompt:
+                if self._invalid_example(doc[idx], prompt, ds_id):
                     continue
                 fewshot_examples.append(doc[idx])
                 fewshot_idx.append((int(idx), ds_id))
@@ -965,7 +998,7 @@ class CrossLingualTask:
             fewshot_docs = self.fewshot_docs()
             fewshot_srcs = [str(fewshot_doc.split) for fewshot_doc in fewshot_docs]
             fewshot_examples, fewshot_idx = self.fewshot_examples(
-                fewshot_docs, k=num_fewshot, rng=rng, prompt=query_doc
+                fewshot_docs, k=num_fewshot, rng=rng, prompt=query_doc, stratify=self.stratify
             )
             labeled_examples_list = []
             fewshot_targets = []

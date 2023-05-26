@@ -459,6 +459,7 @@ class PromptSourceTask(Task):
             An iterable of `Request` objects.
         """
         requests = []
+        request_modes = []
         answer_choices_list = self.prompt_template.get_answer_choices_list(doc)
         if answer_choices_list:
             # If answer_choices_list, then this is a ranked choice prompt.
@@ -467,17 +468,26 @@ class PromptSourceTask(Task):
                     examples = ctx.split(self.example_separator)
                     support = self.example_separator.join(examples[:-1])
                     query = examples[-1]
-                    candidate = query.format(answer_choice)
-                    premise = candidate.split(answer_choice, 1)[0]
-                    hypothesis = candidate[len(premise):]
-                    ll_answer_choice, _ = rf.loglikelihood(
-                        support, premise + hypothesis
+                    premise, hypothesis = query.split('{}')
+                    # lhs = support + premise + answer_choice
+                    # rhs = hypothesis
+                    lhs = support
+                    rhs = premise + answer_choice + hypothesis
+                    ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+                    if self.calibrate:
+                        # TODO: where to put the answer choice?
+                        rhs = hypothesis
+                        ll_caliblator, _ = rf.loglikelihood(
+                        support + answer_choice, rhs
                     )
+                        requests.append(ll_caliblator)     
+                        request_modes.append('calibration')            
                 else:
                     ll_answer_choice, _ = rf.loglikelihood(
                         ctx, self.text_target_separator + answer_choice
                     )
                 requests.append(ll_answer_choice)
+                request_modes.append('scoring')
         else:
             # If not, then this is a generation prompt.
             request_args = {
@@ -487,10 +497,10 @@ class PromptSourceTask(Task):
             }
             cont_request = rf.greedy_until(ctx, request_args)
             requests.append(cont_request)
-        return requests
+        return requests, request_modes
 
     def process_results(
-        self, doc: dict, results: list
+        self, doc: dict, results: list, req_modes: list,
     ) -> Union[dict, Tuple[dict, dict]]:
         """Take a single document and the LM results and evaluates, returning a
         dict where keys are the names of sub-metrics and values are the values of
@@ -518,6 +528,12 @@ class PromptSourceTask(Task):
             target = target[0].strip()
             # TODO: make into a dict.
             target_idx = answer_choices_list.index(target)
+
+            if len(set(req_modes)) != 1:
+                # performing calibration
+                initial_results = [score for score, mode in zip(results, req_modes) if mode == "scoring"]
+                calibration_results = [score for score, mode in zip(results, req_modes) if mode == "calibration"]
+                results = np.array(initial_results) - np.array(calibration_results)
 
             pred = answer_choices_list[np.argmax(results)]
             out = {}
@@ -819,12 +835,18 @@ class PerplexityTask(PromptSourceTask):
 
     
 class CrossLingualTask:
-    def __init__(self, target_task: PromptSourceTask, source_tasks: List[PromptSourceTask], lang_agnostic_template_name: str, stratify: bool = False):
+    def __init__(self, 
+    target_task: PromptSourceTask, 
+    source_tasks: List[PromptSourceTask], 
+    lang_agnostic_template_name: str, 
+    stratify: bool = False, 
+    calibrate: bool = False):
         self.lang_agnostic_template_name = lang_agnostic_template_name
         self.target_task = target_task
         self.source_tasks = source_tasks
         self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
         self.stratify = stratify
+        self.target_task.calibrate = calibrate
         assert set([source_task.text_target_separator for source_task in source_tasks]) == set([target_task.text_target_separator]), \
               "All source and target tasks must have the same text_target_separator"
         self.text_target_separator = target_task.text_target_separator
@@ -918,7 +940,8 @@ class CrossLingualTask:
         shots_per_lang = math.ceil(k / len(docs))
         fewshot_examples, fewshot_idx = [], []
 
-        n_labels = len(self.target_task.prompt_template.answer_choices)
+
+        n_labels = len(self.target_task.prompt_template.answer_choices.split(' ||| '))
         for ds_id, doc in enumerate(docs):
             random_indices = np.arange(len(doc)).tolist()
             # so different languages within the context don't get the same examples
@@ -940,7 +963,7 @@ class CrossLingualTask:
                         break
                 
                 # not enough examples for each label
-                while len(stratified_indices) < shots_per_lang:
+                while i < len(random_indices) and len(stratified_indices) < shots_per_lang:
                     idx = random_indices[i]
                     label = doc[idx]['label']
                     if label_indices[label] == shots_per_label:
@@ -1058,7 +1081,7 @@ class CrossLingualTask:
         return self.target_task.construct_requests(doc, ctx, args)
 
     def process_results(
-        self, doc: dict, results: list
+        self, *args
     ) -> Union[dict, Tuple[dict, dict]]:
         """Take a single document and the LM results and evaluates, returning a
         dict where keys are the names of sub-metrics and values are the values of
@@ -1077,7 +1100,7 @@ class CrossLingualTask:
         Returns:
             A dict of metric results.
         """
-        return self.target_task.process_results(doc, results)
+        return self.target_task.process_results(*args)
 
    
     def aggregation(self) -> Mapping[str, Callable]:

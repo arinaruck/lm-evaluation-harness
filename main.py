@@ -124,6 +124,9 @@ def parse_args():
         "--stratify", action="store_true", help="Stratify examples by label"
     )
     parser.add_argument(
+        "--calibrate", action="store_true", help="Calibrate model predictions (rn implemented only for xlgm like prompts)"
+    )
+    parser.add_argument(
         "--use_cache",
         action="store_true",
         help="Whether to cache your model's predictions or not",
@@ -188,6 +191,11 @@ def main():
             "\n» WARNING: `--limit` SHOULD ONLY BE USED FOR TESTING. REAL METRICS "
             "SHOULD NOT BE COMPUTED USING LIMIT."
         )
+    
+    if args.calibrate:
+        logger.warning(
+            "\n» WARNING: `--calibrate` IS ONLY IMPLEMENTED FOR XGLM FORMAT PROMPTS."
+        )
 
     print()  # Ensure a newline after `main` command for readability.
 
@@ -220,6 +228,7 @@ def main():
         seed=args.seed,
         limit=args.limit,
         stratify=args.stratify,
+        calibrate=args.calibrate,
     )
     if args.no_tracking:
         results = evaluator.cli_evaluate(**evaluate_args)

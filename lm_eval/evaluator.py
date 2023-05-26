@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from typing import List, Dict, Optional
-
 import lm_eval.models
 import lm_eval.tasks
 import lm_eval.api.metric
@@ -41,6 +40,7 @@ def cli_evaluate(
     seed: Optional[int] = DEFAULT_SEED,
     limit: Optional[int] = None,
     stratify: Optional[bool] = False,
+    calibrate: Optional[bool] = False,
 ) -> dict:
     """Evaluate a model from an api on a given task with multiple possible prompt
     formats. This is effectively a wrapper around `evaluate` for command-line
@@ -80,6 +80,10 @@ def cli_evaluate(
             shuffling, few-shot prompt selection, and framework seeding.
         limit (int, optional, defaults to None):
             Limit the number of examples per task (only use this for testing).
+        stratify (bool, optional, defaults to False):
+            Whether to stratify the few-shot examples by label (only for classification tasks).
+        calibrate (bool, optional, defaults to False):
+            Whether to calibrate the model on the hypothesis only prediction (only for xglm with ).
 
     Returns:
         Dictionary of results.
@@ -97,7 +101,7 @@ def cli_evaluate(
     common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
     for prompt in common_prompts:
         assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
-        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify))
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate))
 
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}
@@ -218,15 +222,15 @@ def evaluate(
             )
             fewshotex_logging_info["doc_id"] = doc["doc_id"]
             args = {"num_fewshot": num_fewshot, "prompt_type": task.prompt_type}
-            reqs = task.construct_requests(doc, ctx, args)
+            reqs, req_modes = task.construct_requests(doc, ctx, args)
             if not isinstance(reqs, (list, tuple)):
                 reqs = [reqs]
-            for i, req in enumerate(reqs):
+            for i, (req, req_mode) in enumerate(zip(reqs, req_modes)):
                 requests[req.request_type].append(req)
                 # i: Index in requests for a single task instance
                 # doc_id: Unique id that we can get back to a doc using `docs`
                 requests_origin[req.request_type].append(
-                    (i, task_template_key, doc, doc_id, fewshotex_logging_info)
+                    (i, task_template_key, doc, doc_id, fewshotex_logging_info, req_mode)
                 )
         # Store the task version.
         versions[task_template_key] = task.VERSION
@@ -245,11 +249,11 @@ def evaluate(
         resps = [
             x if req.index is None else x[req.index] for x, req in zip(resps, reqs)
         ]
-        for resp, (i, task_template_key, doc, doc_id, fewshotex_logging_info) in zip(
+        for resp, (i, task_template_key, doc, doc_id, fewshotex_logging_info, req_mode) in zip(
             resps, requests_origin[reqtype]
         ):
             process_response_queue[(task_template_key, doc_id)].append(
-                (i, resp, fewshotex_logging_info)
+                (i, resp, fewshotex_logging_info, req_mode)
             )
 
     # Unpack results and sort back in order and return control to Task
@@ -260,11 +264,12 @@ def evaluate(
         per_doc_requests.sort(key=lambda x: x[0])
         per_doc_results = [x[1] for x in per_doc_requests]
         fewshot_logging_info = [x[2] for x in per_doc_requests][0]
+        per_doc_req_modes = [x[3] for x in per_doc_requests]
 
         task = task_dict[task_template_key]
         doc = docs[(task_template_key, doc_id)]
 
-        output = task.process_results(doc, per_doc_results)
+        output = task.process_results(doc, per_doc_results, per_doc_req_modes)
 
         if task.save_examples:
             metrics, example = output

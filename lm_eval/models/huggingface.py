@@ -77,6 +77,7 @@ class HuggingFaceAutoLM(TokenLM):
         offload_folder: Optional[str] = "./offload",
         dtype: Optional[Union[str, torch.dtype]] = None,
         device: Optional[Union[int, str]] = "cuda",
+        grad_enabled: Optional[bool] = False,
     ):
         """Initializes a HuggingFace `AutoModel` and `AutoTokenizer` for evaluation.
 
@@ -177,7 +178,9 @@ class HuggingFaceAutoLM(TokenLM):
             **accelerate_kwargs,
         )
         self.model.eval()
-        torch.set_grad_enabled(False)
+        if not grad_enabled:
+            torch.set_grad_enabled(False)
+            print('Disabling gradient calculation.', flush=True)
 
         self._device = device
         if use_accelerate and "lm_head" in self.model.hf_device_map:

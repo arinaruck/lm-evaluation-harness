@@ -7,7 +7,8 @@ import promptsource.templates
 from abc import abstractmethod
 from typing import Callable, List, Mapping, Optional, Tuple, Union
 import math
-from collections import Counter
+from collections import Counter, defaultdict
+import os
 
 from lm_eval.api import utils
 from lm_eval.api.metric import (
@@ -22,6 +23,8 @@ from lm_eval.api.request import Request, rf
 
 
 logger = logging.getLogger(__name__)
+
+N_SHUFFLES = int(os.environ.get("N_SHUFFLES", 0))
 
 
 class Task(abc.ABC):
@@ -469,19 +472,23 @@ class PromptSourceTask(Task):
                     support = self.example_separator.join(examples[:-1])
                     query = examples[-1]
                     premise, hypothesis = query.split('{}')
-                    # lhs = support + premise + answer_choice
-                    # rhs = hypothesis
-                    lhs = support
-                    rhs = premise + answer_choice + hypothesis
-                    ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+
                     if self.calibrate:
-                        # TODO: where to put the answer choice?
+                        lhs = support + premise + answer_choice
                         rhs = hypothesis
+                        ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+
+                        # TODO: where to put the answer choice?
                         ll_caliblator, _ = rf.loglikelihood(
-                        support + answer_choice, rhs
-                    )
+                        support, rhs + answer_choice
+                        )
                         requests.append(ll_caliblator)     
-                        request_modes.append('calibration')            
+                        request_modes.append('calibration')  
+                    else:
+                        lhs = support
+                        rhs = premise + answer_choice + hypothesis
+                        ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+
                 else:
                     ll_answer_choice, _ = rf.loglikelihood(
                         ctx, self.text_target_separator + answer_choice
@@ -835,12 +842,14 @@ class PerplexityTask(PromptSourceTask):
 
     
 class CrossLingualTask:
-    def __init__(self, 
-    target_task: PromptSourceTask, 
-    source_tasks: List[PromptSourceTask], 
-    lang_agnostic_template_name: str, 
-    stratify: bool = False, 
-    calibrate: bool = False):
+    def __init__(
+            self, 
+            target_task: PromptSourceTask, 
+            source_tasks: List[PromptSourceTask], 
+            lang_agnostic_template_name: str, 
+            stratify: bool = False, 
+            calibrate: bool = False
+        ):
         self.lang_agnostic_template_name = lang_agnostic_template_name
         self.target_task = target_task
         self.source_tasks = source_tasks
@@ -940,7 +949,6 @@ class CrossLingualTask:
         shots_per_lang = math.ceil(k / len(docs))
         fewshot_examples, fewshot_idx = [], []
 
-
         n_labels = len(self.target_task.prompt_template.answer_choices.split(' ||| '))
         for ds_id, doc in enumerate(docs):
             random_indices = np.arange(len(doc)).tolist()
@@ -971,7 +979,14 @@ class CrossLingualTask:
                         label_indices[label] += 1
                     i += 1
                 random_indices = stratified_indices
-
+                random_indices_sorted = sorted(random_indices, key=lambda x: doc[x]['label'])
+                random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
+                random_indices_perm = random_indices_sorted.copy()
+                for i in range(N_SHUFFLES):
+                    rng.shuffle(random_indices_perm)
+                
+                # CHANGE TO CHANGE STRATIFICATION ORDER
+                random_indices = random_indices_perm
                     
             i = 0
             for idx in random_indices:
@@ -984,6 +999,7 @@ class CrossLingualTask:
                 i += 1
             if len(fewshot_examples) == k:
                 break
+
         return fewshot_examples, fewshot_idx
 
     def fewshot_context(

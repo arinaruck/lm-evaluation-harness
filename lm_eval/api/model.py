@@ -323,11 +323,9 @@ class TokenLM(LM):
                 cont_tokens = torch.tensor(cont_tokens, dtype=torch.long).unsqueeze(0)
                 max_equal = (greedy_tokens == cont_tokens).all()
 
-                # Obtain logprobs at the corresponding continuation token indices
-                # last_token_slice = logits[:, -1, :].squeeze(0).tolist()
-                # [1, seq]
                 logits = torch.gather(logits, 2, cont_tokens.unsqueeze(-1)).squeeze(-1)
                 # Answer: (log prob, is-exact-match)
+                # TODO: change here for mean aggregation
                 answer = (float(logits.sum()), bool(max_equal))
                 # Partial caching
                 if cache_key is not None:

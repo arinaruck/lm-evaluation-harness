@@ -269,7 +269,7 @@ def evaluate(
         task = task_dict[task_template_key]
         doc = docs[(task_template_key, doc_id)]
 
-        output = task.process_results(doc, per_doc_results, per_doc_req_modes)
+        output = task.process_results(doc, per_doc_results, per_doc_req_modes, task.target_task.calibrate)
 
         if task.save_examples:
             metrics, example = output

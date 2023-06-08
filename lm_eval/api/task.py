@@ -25,6 +25,7 @@ from lm_eval.api.request import Request, rf
 logger = logging.getLogger(__name__)
 
 N_SHUFFLES = int(os.environ.get("N_SHUFFLES", 0))
+CONSTANT_CALIBRATION = np.array([-0.920, -0.931, -0.994])
 
 
 class Task(abc.ABC):
@@ -507,7 +508,7 @@ class PromptSourceTask(Task):
         return requests, request_modes
 
     def process_results(
-        self, doc: dict, results: list, req_modes: list,
+        self, doc: dict, results: list, req_modes: list, calibrate: bool = False
     ) -> Union[dict, Tuple[dict, dict]]:
         """Take a single document and the LM results and evaluates, returning a
         dict where keys are the names of sub-metrics and values are the values of
@@ -536,11 +537,14 @@ class PromptSourceTask(Task):
             # TODO: make into a dict.
             target_idx = answer_choices_list.index(target)
 
-            if len(set(req_modes)) != 1:
+            if calibrate:
                 # performing calibration
+                # TODO: switch from constant calibration to calibration using the prompt
                 initial_results = [score for score, mode in zip(results, req_modes) if mode == "scoring"]
                 calibration_results = [score for score, mode in zip(results, req_modes) if mode == "calibration"]
                 results = np.array(initial_results) - np.array(calibration_results)
+                
+                #results = np.array(initial_results) - CONSTANT_CALIBRATION 
 
             pred = answer_choices_list[np.argmax(results)]
             out = {}

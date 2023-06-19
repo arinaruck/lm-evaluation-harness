@@ -8,6 +8,7 @@ from abc import abstractmethod
 from typing import Callable, List, Mapping, Optional, Tuple, Union
 import math
 from collections import Counter, defaultdict
+from more_itertools import nth_permutation
 import os
 
 from lm_eval.api import utils
@@ -25,7 +26,9 @@ from lm_eval.api.request import Request, rf
 logger = logging.getLogger(__name__)
 
 N_SHUFFLES = int(os.environ.get("N_SHUFFLES", 0))
+PERMUTATION_IDX = int(os.environ.get("PERMUTATION_ID", 0))
 CONSTANT_CALIBRATION = np.array([-0.920, -0.931, -0.994])
+ORACLE_CALIBRATION = np.array([0.0420, -0.0596,  0.0086])
 
 
 class Task(abc.ABC):
@@ -481,10 +484,10 @@ class PromptSourceTask(Task):
 
                         # TODO: where to put the answer choice?
                         ll_caliblator, _ = rf.loglikelihood(
-                        support, rhs + answer_choice
+                        support + answer_choice, rhs
                         )
-                        requests.append(ll_caliblator)     
-                        request_modes.append('calibration')  
+                        #requests.append(ll_caliblator)     
+                        #request_modes.append('calibration')  
                     else:
                         lhs = support
                         rhs = premise + answer_choice + hypothesis
@@ -541,10 +544,10 @@ class PromptSourceTask(Task):
                 # performing calibration
                 # TODO: switch from constant calibration to calibration using the prompt
                 initial_results = [score for score, mode in zip(results, req_modes) if mode == "scoring"]
-                calibration_results = [score for score, mode in zip(results, req_modes) if mode == "calibration"]
-                results = np.array(initial_results) - np.array(calibration_results)
+                #calibration_results = [score for score, mode in zip(results, req_modes) if mode == "calibration"]
+                #results = np.array(initial_results) - np.array(calibration_results)
                 
-                #results = np.array(initial_results) - CONSTANT_CALIBRATION 
+                results = np.array(initial_results) - ORACLE_CALIBRATION
 
             pred = answer_choices_list[np.argmax(results)]
             out = {}
@@ -870,6 +873,8 @@ class CrossLingualTask:
               "All source and target tasks must have the same version"
         self.VERSION = target_task.VERSION
 
+        print(f'n shuffles: {N_SHUFFLES}')
+
 
     @property
     def name(self):
@@ -883,6 +888,45 @@ class CrossLingualTask:
     def evaluation_docs(self) -> datasets.Dataset:
         """Returns the `dataset` split to be used for evaluation."""
         return self.target_task.evaluation_docs()
+    
+    def _stratify_docs(self, ds, indices, n_samples, n_labels, prompt, ds_id):
+        """
+        Subsamples a HuggingFace dataset by stratifying over a subset of indices.
+        This is useful for sampling a subset of a dataset while preserving the
+        distribution of labels.
+
+        Args:
+            ds (datasets.Dataset):
+                The dataset to subsample.
+            indices (list):
+                The indices to stratify over.
+            n_samples (int):
+                The number of samples to return.
+            n_labels (int):
+                The number of labels in the dataset.
+        """
+        shots_per_label = n_samples // n_labels
+        stratified_indices = []
+        label_indices = Counter()
+        for i, idx in enumerate(indices):
+            label = ds[idx]['label']
+            if self._invalid_example(ds[idx], prompt, ds_id):
+                continue
+            if label_indices[label] < shots_per_label:
+                stratified_indices.append(idx)
+                label_indices[label] += 1
+            if len(stratified_indices) == shots_per_label * n_labels:
+                break
+        
+        # not enough examples for each label
+        while i < len(indices) and len(stratified_indices) < n_labels:
+            idx = indices[i]
+            label = ds[idx]['label']
+            if label_indices[label] == shots_per_label:
+                stratified_indices.append(idx)
+                label_indices[label] += 1
+
+        return ds[stratified_indices]
 
     # TODO: concat or not concat?
     def fewshot_docs(self) -> List[datasets.Dataset]:
@@ -984,13 +1028,14 @@ class CrossLingualTask:
                     i += 1
                 random_indices = stratified_indices
                 random_indices_sorted = sorted(random_indices, key=lambda x: doc[x]['label'])
-                random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
+                #random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
                 random_indices_perm = random_indices_sorted.copy()
                 for i in range(N_SHUFFLES):
                     rng.shuffle(random_indices_perm)
                 
                 # CHANGE TO CHANGE STRATIFICATION ORDER
                 random_indices = random_indices_perm
+                #random_indices = nth_permutation(random_indices_sorted, k, PERMUTATION_IDX)
                     
             i = 0
             for idx in random_indices:

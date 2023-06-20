@@ -127,6 +127,9 @@ def parse_args():
         "--calibrate", action="store_true", help="Calibrate model predictions (rn implemented only for xlgm like prompts)"
     )
     parser.add_argument(
+        "--fix-demonstrations", action="store_true", help="Fix the same demonstrations for all examples"
+    )
+    parser.add_argument(
         "--use_cache",
         action="store_true",
         help="Whether to cache your model's predictions or not",
@@ -229,6 +232,7 @@ def main():
         limit=args.limit,
         stratify=args.stratify,
         calibrate=args.calibrate,
+        fix_demonstrations=args.fix_demonstrations,
     )
     if args.no_tracking:
         results = evaluator.cli_evaluate(**evaluate_args)

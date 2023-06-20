@@ -855,14 +855,22 @@ class CrossLingualTask:
             source_tasks: List[PromptSourceTask], 
             lang_agnostic_template_name: str, 
             stratify: bool = False, 
-            calibrate: bool = False
+            calibrate: bool = False,
+            k_shot: int = 0,
+            fix_demonstrations: bool = False,
+            seed: int = 42
         ):
+
         self.lang_agnostic_template_name = lang_agnostic_template_name
         self.target_task = target_task
         self.source_tasks = source_tasks
         self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
         self.stratify = stratify
         self.target_task.calibrate = calibrate
+        self.k_shot = k_shot
+        self.fix_demonstrations = fix_demonstrations
+        self.seed = seed
+
         assert set([source_task.text_target_separator for source_task in source_tasks]) == set([target_task.text_target_separator]), \
               "All source and target tasks must have the same text_target_separator"
         self.text_target_separator = target_task.text_target_separator
@@ -873,7 +881,7 @@ class CrossLingualTask:
               "All source and target tasks must have the same version"
         self.VERSION = target_task.VERSION
 
-        print(f'n shuffles: {N_SHUFFLES}')
+        print(f'permutation idx: {PERMUTATION_IDX}')
 
 
     @property
@@ -889,7 +897,7 @@ class CrossLingualTask:
         """Returns the `dataset` split to be used for evaluation."""
         return self.target_task.evaluation_docs()
     
-    def _stratify_docs(self, ds, indices, n_samples, n_labels, prompt, ds_id):
+    def _stratify_docs(self, ds, indices, n_samples, n_labels):
         """
         Subsamples a HuggingFace dataset by stratifying over a subset of indices.
         This is useful for sampling a subset of a dataset while preserving the
@@ -910,7 +918,7 @@ class CrossLingualTask:
         label_indices = Counter()
         for i, idx in enumerate(indices):
             label = ds[idx]['label']
-            if self._invalid_example(ds[idx], prompt, ds_id):
+            if self.invalid_doc_for_prompt(ds[idx]):
                 continue
             if label_indices[label] < shots_per_label:
                 stratified_indices.append(idx)
@@ -925,16 +933,31 @@ class CrossLingualTask:
             if label_indices[label] == shots_per_label:
                 stratified_indices.append(idx)
                 label_indices[label] += 1
+            i += 1
 
-        return ds[stratified_indices]
+        return ds.select(stratified_indices), stratified_indices
 
-    # TODO: concat or not concat?
     def fewshot_docs(self) -> List[datasets.Dataset]:
         """Returns the `dataset` split that the few-shot examples should be sample
         from. This prioritizes the `train_docs` split as the few-shot example
         source, then `validation_docs`, and lastly `test_docs`.
         """
+
         return [source_task.fewshot_docs() for source_task in self.source_tasks]
+
+    def fixed_fewshot_docs(self) -> List[datasets.Dataset]:
+        """Returns the `dataset` split of few-shot examples should be used for all demonstrations. This prioritizes the `train_docs` split as the few-shot example
+        source, then `validation_docs`, and lastly `test_docs`.
+        """
+        rng = np.random.default_rng(self.seed)
+        fewshot_docs = []
+        n_shots_per_ds = self.k_shot // len(self.source_tasks)
+        for source_task in self.source_tasks:
+            indices = list(range(len(source_task.fewshot_docs())))
+            rng.shuffle(indices)
+            stratified_docs, _ = self._stratify_docs(source_task.fewshot_docs(), indices, n_shots_per_ds, len(self.target_task.prompt_template.answer_choices.split(' ||| ')))
+            fewshot_docs.append(stratified_docs)
+        return fewshot_docs
     
     def has_training_docs(self) -> bool:
         return any([source_task.has_training_docs() for source_task in self.source_tasks])
@@ -1005,27 +1028,8 @@ class CrossLingualTask:
             rng.shuffle(random_indices)
             if stratify:
                 # stratify by label
-                shots_per_label = shots_per_lang // n_labels
-                stratified_indices = []
-                label_indices = Counter()
-                for i, idx in enumerate(random_indices):
-                    label = doc[idx]['label']
-                    if self._invalid_example(doc[idx], prompt, ds_id):
-                        continue
-                    if label_indices[label] < shots_per_label:
-                        stratified_indices.append(idx)
-                        label_indices[label] += 1
-                    if len(stratified_indices) == shots_per_label * n_labels:
-                        break
+                _, stratified_indices = self._stratify_docs(doc, random_indices, shots_per_lang, n_labels)
                 
-                # not enough examples for each label
-                while i < len(random_indices) and len(stratified_indices) < shots_per_lang:
-                    idx = random_indices[i]
-                    label = doc[idx]['label']
-                    if label_indices[label] == shots_per_label:
-                        stratified_indices.append(idx)
-                        label_indices[label] += 1
-                    i += 1
                 random_indices = stratified_indices
                 random_indices_sorted = sorted(random_indices, key=lambda x: doc[x]['label'])
                 #random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
@@ -1034,8 +1038,8 @@ class CrossLingualTask:
                     rng.shuffle(random_indices_perm)
                 
                 # CHANGE TO CHANGE STRATIFICATION ORDER
-                random_indices = random_indices_perm
-                #random_indices = nth_permutation(random_indices_sorted, k, PERMUTATION_IDX)
+                #random_indices = random_indices_perm
+                random_indices = nth_permutation(random_indices_sorted, k, PERMUTATION_IDX)
                     
             i = 0
             for idx in random_indices:
@@ -1083,7 +1087,7 @@ class CrossLingualTask:
             fewshot_idx, fewshot_targets, fewshot_srcs = ([], [], None)
         else:
             # Construct few-shot labeled examples.
-            fewshot_docs = self.fewshot_docs()
+            fewshot_docs = self.fewshot_docs() if not self.fix_demonstrations else self.fixed_fewshot_docs()
             fewshot_srcs = [str(fewshot_doc.split) for fewshot_doc in fewshot_docs]
             fewshot_examples, fewshot_idx = self.fewshot_examples(
                 fewshot_docs, k=num_fewshot, rng=rng, prompt=query_doc, stratify=self.stratify

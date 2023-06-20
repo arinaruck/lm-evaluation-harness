@@ -41,6 +41,7 @@ def cli_evaluate(
     limit: Optional[int] = None,
     stratify: Optional[bool] = False,
     calibrate: Optional[bool] = False,
+    fix_demonstrations: Optional[bool] = False,
 ) -> dict:
     """Evaluate a model from an api on a given task with multiple possible prompt
     formats. This is effectively a wrapper around `evaluate` for command-line
@@ -83,7 +84,9 @@ def cli_evaluate(
         stratify (bool, optional, defaults to False):
             Whether to stratify the few-shot examples by label (only for classification tasks).
         calibrate (bool, optional, defaults to False):
-            Whether to calibrate the model on the hypothesis only prediction (only for xglm with ).
+            Whether to calibrate the model on the hypothesis only prediction (only for xglm).
+        fix_demonstrations (bool, optional, defaults to False):
+            Whether to fix the demonstrations to be the same for each few-shot example.
 
     Returns:
         Dictionary of results.
@@ -101,7 +104,7 @@ def cli_evaluate(
     common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
     for prompt in common_prompts:
         assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
-        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate))
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate, k_shot=num_fewshot, fix_demonstrations=fix_demonstrations, seed=seed))
 
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}
@@ -204,7 +207,7 @@ def evaluate(
         )
 
         logger.info(f"\n» Filtering invalid docs from '{task_template_key}'")
-        # 
+         
         task_docs = task_docs.filter(lambda d: not task.target_task.invalid_doc_for_prompt(d))
         task_docs = task_docs.shuffle(generator=rng)
 

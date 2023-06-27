@@ -326,7 +326,7 @@ class TokenLM(LM):
                 logits = torch.gather(logits, 2, cont_tokens.unsqueeze(-1)).squeeze(-1)
                 # Answer: (log prob, is-exact-match)
                 # TODO: change here for mean aggregation
-                answer = (float(logits.sum()), bool(max_equal))
+                answer = (float(logits.mean()), bool(max_equal))
                 # Partial caching
                 if cache_key is not None:
                     self.cache_hook.add_partial("loglikelihood", cache_key, answer)

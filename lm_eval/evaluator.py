@@ -40,6 +40,7 @@ def cli_evaluate(
     seed: Optional[int] = DEFAULT_SEED,
     limit: Optional[int] = None,
     stratify: Optional[bool] = False,
+    reorder: Optional[bool] = False,
     calibrate: Optional[bool] = False,
     fix_demonstrations: Optional[bool] = False,
 ) -> dict:
@@ -104,7 +105,13 @@ def cli_evaluate(
     common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
     for prompt in common_prompts:
         assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
-        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate, k_shot=num_fewshot, fix_demonstrations=fix_demonstrations, seed=seed))
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate, k_shot=num_fewshot, fix_demonstrations=fix_demonstrations, seed=seed, reorder=reorder))
+
+    if fix_demonstrations:
+        print('Fixed fewshot docs:')
+        fixed_docs = cross_lingual_tasks[0].fixed_fewshot_docs()[0]
+        for el in fixed_docs:
+            print(el)
 
     model = lm_eval.models.get_model_from_args_string(
         model_api_name, model_args, {"batch_size": batch_size, "device": device}

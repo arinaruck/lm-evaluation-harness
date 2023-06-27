@@ -20,9 +20,9 @@ install_requires = [
     "sqlitedict==1.6.0",
     "torch>=1.9",
     "tqdm-multiprocess==0.0.11",
-    "accelerate@git+https://github.com/huggingface/accelerate@main",
-    "transformers@git+https://github.com/huggingface/transformers@main",
-    "promptsource@git+https://github.com/bigscience-workshop/promptsource@eval-hackathon",
+    "accelerate@git+https://github.com/huggingface/accelerate@v0.20.3",
+    "transformers@git+https://github.com/huggingface/transformers@v4.30.1",
+#    "promptsource@git+https://github.com/bigscience-workshop/promptsource@eval-hackathon",
 ]
 dependency_links = []
 

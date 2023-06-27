@@ -24,9 +24,7 @@ from lm_eval.api.request import Request, rf
 
 
 logger = logging.getLogger(__name__)
-
-N_SHUFFLES = int(os.environ.get("N_SHUFFLES", 0))
-PERMUTATION_IDX = int(os.environ.get("PERMUTATION_ID", 0))
+PERMUTATION_IDX = int(os.environ.get("PERMUTATION_IDX", 0))
 CONSTANT_CALIBRATION = np.array([-0.920, -0.931, -0.994])
 ORACLE_CALIBRATION = np.array([0.0420, -0.0596,  0.0086])
 
@@ -489,8 +487,8 @@ class PromptSourceTask(Task):
                         #requests.append(ll_caliblator)     
                         #request_modes.append('calibration')  
                     else:
-                        lhs = support
-                        rhs = premise + answer_choice + hypothesis
+                        lhs = support + premise + answer_choice
+                        rhs = hypothesis
                         ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
 
                 else:
@@ -855,6 +853,7 @@ class CrossLingualTask:
             source_tasks: List[PromptSourceTask], 
             lang_agnostic_template_name: str, 
             stratify: bool = False, 
+            reorder: bool = False,
             calibrate: bool = False,
             k_shot: int = 0,
             fix_demonstrations: bool = False,
@@ -866,6 +865,7 @@ class CrossLingualTask:
         self.source_tasks = source_tasks
         self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
         self.stratify = stratify
+        self.reorder = reorder
         self.target_task.calibrate = calibrate
         self.k_shot = k_shot
         self.fix_demonstrations = fix_demonstrations
@@ -881,7 +881,8 @@ class CrossLingualTask:
               "All source and target tasks must have the same version"
         self.VERSION = target_task.VERSION
 
-        print(f'permutation idx: {PERMUTATION_IDX}')
+        if self.reorder:
+            print(f'permutation idx: {PERMUTATION_IDX}')
 
 
     @property
@@ -1031,27 +1032,25 @@ class CrossLingualTask:
                 _, stratified_indices = self._stratify_docs(doc, random_indices, shots_per_lang, n_labels)
                 
                 random_indices = stratified_indices
-                random_indices_sorted = sorted(random_indices, key=lambda x: doc[x]['label'])
-                #random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
-                random_indices_perm = random_indices_sorted.copy()
-                for i in range(N_SHUFFLES):
-                    rng.shuffle(random_indices_perm)
-                
-                # CHANGE TO CHANGE STRATIFICATION ORDER
-                #random_indices = random_indices_perm
-                random_indices = nth_permutation(random_indices_sorted, k, PERMUTATION_IDX)
                     
             i = 0
             for idx in random_indices:
-                if i >= shots_per_lang or len(fewshot_examples) == k:  # Break when we have enough examples.
+                if i >= shots_per_lang or len(fewshot_idx) == k:  # Break when we have enough examples.
                     break
                 if self._invalid_example(doc[idx], prompt, ds_id):
                     continue
-                fewshot_examples.append(doc[idx])
                 fewshot_idx.append((int(idx), ds_id))
                 i += 1
-            if len(fewshot_examples) == k:
-                break
+                if len(fewshot_idx) == k:
+                    break
+
+            if self.reorder:
+                fewshot_idx_sorted = sorted(fewshot_idx, key=lambda x: doc[x]['label'])
+                #random_indices_interleaved = sum([random_indices_sorted[i::shots_per_label] for i in range(n_labels)], [])
+                fewshot_idx = nth_permutation(fewshot_idx_sorted, k, PERMUTATION_IDX)
+
+            for idx, _ in fewshot_idx:
+                fewshot_examples.append(doc[idx])
 
         return fewshot_examples, fewshot_idx
 

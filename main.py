@@ -124,6 +124,9 @@ def parse_args():
         "--stratify", action="store_true", help="Stratify examples by label"
     )
     parser.add_argument(
+        "--reorder", action="store_true", help="Reorder examples by label"
+    )
+    parser.add_argument(
         "--calibrate", action="store_true", help="Calibrate model predictions (rn implemented only for xlgm like prompts)"
     )
     parser.add_argument(
@@ -201,6 +204,7 @@ def main():
         )
 
     print()  # Ensure a newline after `main` command for readability.
+    print(f'Running evaluation with seed: {args.seed}')
 
     path_separator = "."
     output_path = args_to_name(args, separator=path_separator)
@@ -231,10 +235,12 @@ def main():
         seed=args.seed,
         limit=args.limit,
         stratify=args.stratify,
+        reorder=args.reorder,
         calibrate=args.calibrate,
         fix_demonstrations=args.fix_demonstrations,
     )
     if args.no_tracking:
+        print('Evaluation without tracking emissions')
         results = evaluator.cli_evaluate(**evaluate_args)
     else:
         from codecarbon import OfflineEmissionsTracker

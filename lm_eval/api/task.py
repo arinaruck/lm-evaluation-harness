@@ -25,8 +25,6 @@ from lm_eval.api.request import Request, rf
 
 logger = logging.getLogger(__name__)
 PERMUTATION_IDX = int(os.environ.get("PERMUTATION_IDX", 0))
-CONSTANT_CALIBRATION = np.array([-0.920, -0.931, -0.994])
-ORACLE_CALIBRATION = np.array([0.0420, -0.0596,  0.0086])
 
 
 class Task(abc.ABC):
@@ -914,24 +912,24 @@ class CrossLingualTask:
             n_labels (int):
                 The number of labels in the dataset.
         """
-        shots_per_label = n_samples // n_labels
+        n_shots_per_label = n_samples // n_labels
         stratified_indices = []
         label_indices = Counter()
         for i, idx in enumerate(indices):
             label = ds[idx]['label']
             if self.invalid_doc_for_prompt(ds[idx]):
                 continue
-            if label_indices[label] < shots_per_label:
+            if label_indices[label] < n_shots_per_label:
                 stratified_indices.append(idx)
                 label_indices[label] += 1
-            if len(stratified_indices) == shots_per_label * n_labels:
+            if len(stratified_indices) == n_shots_per_label * n_labels:
                 break
         
         # not enough examples for each label
         while i < len(indices) and len(stratified_indices) < n_labels:
             idx = indices[i]
             label = ds[idx]['label']
-            if label_indices[label] == shots_per_label:
+            if label_indices[label] == n_shots_per_label:
                 stratified_indices.append(idx)
                 label_indices[label] += 1
             i += 1
@@ -1150,7 +1148,7 @@ class CrossLingualTask:
 
     def process_results(
         self, *args
-    ) -> Union[dict, Tuple[dict, dict]]:
+     ) -> Union[dict, Tuple[dict, dict]]:
         """Take a single document and the LM results and evaluates, returning a
         dict where keys are the names of sub-metrics and values are the values of
         the metric for that one document.

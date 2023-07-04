@@ -473,21 +473,15 @@ class PromptSourceTask(Task):
                     query = examples[-1]
                     premise, hypothesis = query.split('{}')
 
-                    if self.calibrate:
-                        lhs = support + premise + answer_choice
-                        rhs = hypothesis
-                        ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+                    lhs = support + premise + answer_choice
+                    rhs = hypothesis
 
-                        # TODO: where to put the answer choice?
-                        ll_caliblator, _ = rf.loglikelihood(
-                        support + answer_choice, rhs
-                        )
-                        #requests.append(ll_caliblator)     
-                        #request_modes.append('calibration')  
-                    else:
-                        lhs = support + premise + answer_choice
-                        rhs = hypothesis
-                        ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+                    # for "whole query" evaluation
+                    # rhs = support
+                    # rhs premise + answer_choice + hypothesis
+
+                    ll_answer_choice, _ = rf.loglikelihood(lhs, rhs)
+
 
                 else:
                     ll_answer_choice, _ = rf.loglikelihood(
@@ -507,7 +501,7 @@ class PromptSourceTask(Task):
         return requests, request_modes
 
     def process_results(
-        self, doc: dict, results: list, req_modes: list, calibrate: bool = False
+        self, doc: dict, results: list, req_modes: list,
     ) -> Union[dict, Tuple[dict, dict]]:
         """Take a single document and the LM results and evaluates, returning a
         dict where keys are the names of sub-metrics and values are the values of
@@ -535,16 +529,6 @@ class PromptSourceTask(Task):
             target = target[0].strip()
             # TODO: make into a dict.
             target_idx = answer_choices_list.index(target)
-
-            if calibrate:
-                # performing calibration
-                # TODO: switch from constant calibration to calibration using the prompt
-                initial_results = [score for score, mode in zip(results, req_modes) if mode == "scoring"]
-                #calibration_results = [score for score, mode in zip(results, req_modes) if mode == "calibration"]
-                #results = np.array(initial_results) - np.array(calibration_results)
-                
-                results = np.array(initial_results) - ORACLE_CALIBRATION
-
             pred = answer_choices_list[np.argmax(results)]
             out = {}
 
@@ -852,7 +836,6 @@ class CrossLingualTask:
             lang_agnostic_template_name: str, 
             stratify: bool = False, 
             reorder: bool = False,
-            calibrate: bool = False,
             k_shot: int = 0,
             fix_demonstrations: bool = False,
             seed: int = 42
@@ -864,7 +847,6 @@ class CrossLingualTask:
         self.prompt_type = 'xglm' if lang_agnostic_template_name.startswith('xglm') else 'promptsource'
         self.stratify = stratify
         self.reorder = reorder
-        self.target_task.calibrate = calibrate
         self.k_shot = k_shot
         self.fix_demonstrations = fix_demonstrations
         self.seed = seed

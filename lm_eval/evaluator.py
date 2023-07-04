@@ -41,7 +41,6 @@ def cli_evaluate(
     limit: Optional[int] = None,
     stratify: Optional[bool] = False,
     reorder: Optional[bool] = False,
-    calibrate: Optional[bool] = False,
     fix_demonstrations: Optional[bool] = False,
 ) -> dict:
     """Evaluate a model from an api on a given task with multiple possible prompt
@@ -84,8 +83,6 @@ def cli_evaluate(
             Limit the number of examples per task (only use this for testing).
         stratify (bool, optional, defaults to False):
             Whether to stratify the few-shot examples by label (only for classification tasks).
-        calibrate (bool, optional, defaults to False):
-            Whether to calibrate the model on the hypothesis only prediction (only for xglm).
         fix_demonstrations (bool, optional, defaults to False):
             Whether to fix the demonstrations to be the same for each few-shot example.
 
@@ -105,7 +102,7 @@ def cli_evaluate(
     common_prompts = set(target_tasks.keys()).intersection(set(source_tasks.keys()))
     for prompt in common_prompts:
         assert len(target_tasks[prompt]) == 1, "target tasks only have one task per prompt"
-        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, calibrate=calibrate, k_shot=num_fewshot, fix_demonstrations=fix_demonstrations, seed=seed, reorder=reorder))
+        cross_lingual_tasks.append(CrossLingualTask(target_tasks[prompt][0], source_tasks[prompt], prompt, stratify=stratify, k_shot=num_fewshot, fix_demonstrations=fix_demonstrations, seed=seed, reorder=reorder))
 
     if fix_demonstrations:
         print('Fixed fewshot docs:')
@@ -279,7 +276,7 @@ def evaluate(
         task = task_dict[task_template_key]
         doc = docs[(task_template_key, doc_id)]
 
-        output = task.process_results(doc, per_doc_results, per_doc_req_modes, task.target_task.calibrate)
+        output = task.process_results(doc, per_doc_results, per_doc_req_modes)
 
         if task.save_examples:
             metrics, example = output

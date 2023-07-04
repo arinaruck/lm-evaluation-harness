@@ -34,23 +34,23 @@ def parse_args():
     parser.add_argument(
         "--task_tgt_cfg",
         required=True,
-        help="Language of the target task. See: `lm_eval.list_tasks()`",
+        help="Language of the target task demonstrations (but not necessarily the prompt). See: `lm_eval.list_tasks() for more details.`",
     )
     parser.add_argument(
         "--task_src_cfgs",
         default=None,
-        help="Languages of the source tasks to draw demonstrations from. See: `lm_eval.list_tasks()`"
+        help="Languages of the source tasks to draw demonstrations from. See: `lm_eval.list_tasks() for more details.`"
         "Example: en,fr,de"
     )
     parser.add_argument(
         "--prompt_tgt_cfg",
         required=True,
-        help="Language of the target prompt to use demonstrations with."
+        help="Language of the target prompt to use demonstrations with (defaults to task_tgt_cfg)."
     )
     parser.add_argument(
         "--prompt_src_cfgs",
         default=None,
-        help="Languages of the source prompts to use demonstrations with. "
+        help="Languages of the source prompts to use demonstrations with, separated by a comma. "
         "Example: en,fr,de"
     )
     parser.add_argument(
@@ -77,9 +77,9 @@ def parse_args():
             - `"original_templates"`: Selects only templates that are designed to match the original task
         """,
     )
-    parser.add_argument("--num_fewshot", type=int, default=0)
-    parser.add_argument("--batch_size", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=utils.DEFAULT_SEED)
+    parser.add_argument("--num_fewshot", type=int, default=0, help="Number of fewshot examples to use")
+    parser.add_argument("--batch_size", type=int, default=None, help="Evaluation batch size")
+    parser.add_argument("--seed", type=int, default=utils.DEFAULT_SEED, help="Random seed")
     parser.add_argument(
         "--device",
         type=str,
@@ -124,10 +124,7 @@ def parse_args():
         "--stratify", action="store_true", help="Stratify examples by label"
     )
     parser.add_argument(
-        "--reorder", action="store_true", help="Reorder examples by label"
-    )
-    parser.add_argument(
-        "--calibrate", action="store_true", help="Calibrate model predictions (rn implemented only for xlgm like prompts)"
+        "--reorder", action="store_true", help="Reorder examples by label (e.g. demonstrations are groupped by label or examples of different labels are interleaved)"
     )
     parser.add_argument(
         "--fix-demonstrations", action="store_true", help="Fix the same demonstrations for all examples"
@@ -197,11 +194,6 @@ def main():
             "\n» WARNING: `--limit` SHOULD ONLY BE USED FOR TESTING. REAL METRICS "
             "SHOULD NOT BE COMPUTED USING LIMIT."
         )
-    
-    if args.calibrate:
-        logger.warning(
-            "\n» WARNING: `--calibrate` IS ONLY IMPLEMENTED FOR XGLM FORMAT PROMPTS."
-        )
 
     print()  # Ensure a newline after `main` command for readability.
     print(f'Running evaluation with seed: {args.seed}')
@@ -236,7 +228,6 @@ def main():
         limit=args.limit,
         stratify=args.stratify,
         reorder=args.reorder,
-        calibrate=args.calibrate,
         fix_demonstrations=args.fix_demonstrations,
     )
     if args.no_tracking:
